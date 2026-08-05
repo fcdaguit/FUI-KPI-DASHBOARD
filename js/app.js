@@ -319,10 +319,17 @@ function reconcileRelatedFields(justChecked) {
   }
 }
 
+/** What a dropdown actually DISPLAYS: always the full list for that field —
+ * relationships are reflected only through which checkboxes are checked,
+ * never by hiding/removing options from the list. */
+function displayValues(field) {
+  return field === "period" ? allPeriods() : rawFieldValues(field);
+}
+
 function renderDropdown(field) {
   const stateKey = FIELD_TO_STATE_KEY[field];
   const set = state[stateKey];
-  const values = fieldValues(field);
+  const values = displayValues(field);
 
   const optionsEl = document.querySelector(`[data-options="${field}"]`);
   optionsEl.innerHTML = values.length
@@ -332,7 +339,7 @@ function renderDropdown(field) {
           <span>${labelForValue(field, v)}</span>
         </label>
       `).join("")
-    : `<div class="state-banner" style="padding:16px;">No related options.</div>`;
+    : `<div class="state-banner" style="padding:16px;">No options available.</div>`;
 
   const valueEl = document.querySelector(`[data-value-for="${field}"]`);
   if (!values.length) valueEl.textContent = "None";
@@ -355,7 +362,7 @@ function populateFilters() {
 function selectionSummaryText(field) {
   const stateKey = FIELD_TO_STATE_KEY[field];
   const set = state[stateKey];
-  const values = fieldValues(field);
+  const values = displayValues(field);
   if (!set.size) return "no selection";
   if (set.size === values.length) return field === "principal" ? "All principals" : `All ${field}s`;
   if (set.size === 1) return labelForValue(field, [...set][0]);
@@ -396,26 +403,17 @@ function wireFilterEvents() {
       const panel = bulkBtn.closest(".dropdown-panel");
       const field = panel.dataset.panel;
       const stateKey = FIELD_TO_STATE_KEY[field];
-      const values = fieldValues(field);
+      const values = displayValues(field);
       const isSelectAll = bulkBtn.dataset.bulk === "all";
 
-      if (isSelectAll) {
-        state[stateKey] = new Set(values);
-        if (RELATED_FIELDS.includes(field)) {
-          // selecting everything can only ever ADD reachable options for
-          // siblings, never remove any — safe to reconcile
-          reconcileRelatedFields();
-          renderAllRelatedDropdowns();
-        } else {
-          renderDropdown(field);
-        }
-      } else {
-        // Uncheck All / Latest Only: a purely local action — unchecks this
-        // field's own boxes without touching sibling selections or
-        // collapsing anyone's visible option list
-        state[stateKey] = field === "period" && values.length ? new Set([values[0]]) : new Set();
-        renderDropdown(field);
-      }
+      // Both actions are purely local: they only change this field's own
+      // checkboxes. Sibling fields and every dropdown's visible option list
+      // are left untouched — only individual checkbox clicks drive the
+      // auto-check / auto-uncheck relationship behavior between fields.
+      state[stateKey] = isSelectAll
+        ? new Set(values)
+        : (field === "period" && values.length ? new Set([values[0]]) : new Set());
+      renderDropdown(field);
       render();
       return;
     }
