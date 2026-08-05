@@ -209,7 +209,7 @@ const knownValues = { principal: new Set(), branch: new Set(), channel: new Set(
 
 function fieldValues(field) {
   if (field === "period") return allPeriods();
-  if (field === "channel" || field === "category") {
+  if (field === "channel" || field === "category" || field === "branch") {
     // cascades from whichever Principals are currently checked
     const pool = state.raw.filter((r) => state.principals.has(r.principal));
     return uniq(pool.map((r) => r[field])).sort();
@@ -308,11 +308,14 @@ function selectionSummaryText(field) {
   return `${set.size} ${field}s selected`;
 }
 
-/** Channel and Category option pools depend on which Principals are
- * checked — re-sync and redraw them whenever the Principal selection changes. */
+/** Channel, Category, and Branch/Site option pools depend on which
+ * Principals are checked — re-sync and redraw them whenever the Principal
+ * selection changes. */
 function cascadeFromPrincipal() {
+  syncCheckField("branch");
   syncCheckField("channel");
   syncCheckField("category");
+  renderDropdown("branch");
   renderDropdown("channel");
   renderDropdown("category");
 }
