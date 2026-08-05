@@ -201,20 +201,28 @@ function scoped(rows, { ignorePrincipal = false, ignoreBranch = false, ignoreCha
 
 const FIELD_TO_STATE_KEY = { principal: "principals", branch: "branches", channel: "channels", category: "categories", period: "periods" };
 const DROPDOWN_FIELDS = ["principal", "branch", "period", "channel", "category"];
+// The four fields that must stay mutually interrelated (Period is intentionally excluded).
+const RELATED_FIELDS = ["principal", "branch", "channel", "category"];
+const IGNORE_KEY = { principal: "ignorePrincipal", branch: "ignoreBranch", channel: "ignoreChannel", category: "ignoreCategory" };
 
 // Tracks every value ever seen per field, so a data refresh can tell a
 // genuinely NEW value (default it to included) from one the user
 // deliberately unchecked (leave it excluded).
 const knownValues = { principal: new Set(), branch: new Set(), channel: new Set(), category: new Set() };
 
+/** Full universe of values for a field, ignoring every current selection.
+ * Used only when (re)establishing the baseline at init/Refresh time. */
+function rawFieldValues(field) {
+  return uniq(state.raw.map((r) => r[field])).sort();
+}
+
+/** The values actually shown/checkable for a field right now — cross-filtered
+ * against the OTHER three related fields' current selections, so a dropdown
+ * never displays an option unrelated to what's checked elsewhere. */
 function fieldValues(field) {
   if (field === "period") return allPeriods();
-  if (field === "channel" || field === "category" || field === "branch") {
-    // cascades from whichever Principals are currently checked
-    const pool = state.raw.filter((r) => state.principals.has(r.principal));
-    return uniq(pool.map((r) => r[field])).sort();
-  }
-  return uniq(state.raw.map((r) => r[field])).sort();
+  const pool = scoped(state.raw, { [IGNORE_KEY[field]]: true });
+  return uniq(pool.map((r) => r[field])).sort();
 }
 
 function periodLabelFor(value) {
@@ -236,11 +244,12 @@ function allPeriods() {
   });
 }
 
-/** Sync a checkbox-list field's state Set against the current data:
- * newly-seen values default to included; values no longer present are
- * pruned; values the user already excluded stay excluded. */
+/** Sync a checkbox-list field's state Set against the FULL dataset (not
+ * cross-filtered): newly-seen values default to included; values no longer
+ * present are pruned; values the user already excluded stay excluded.
+ * Only used to (re)establish the baseline at init/Refresh time. */
 function syncCheckField(field) {
-  const values = fieldValues(field);
+  const values = rawFieldValues(field);
   const stateKey = FIELD_TO_STATE_KEY[field];
   const included = state[stateKey];
   const known = knownValues[field];
@@ -269,6 +278,36 @@ function syncPeriods() {
   state.periods = new Set([periods.includes(currentValue) ? currentValue : periods[0]]);
 }
 
+/** Principal / Branch / Channel / Category must stay mutually consistent:
+ * - Checking a value auto-checks whatever co-occurs with it (same rows) in
+ *   the other three fields.
+ * - After any change, every field's included set is pruned down to only
+ *   what's still reachable given the other three fields' current selections
+ *   — so nothing "checked" ever sits unrelated to the rest of the selection.
+ * `justChecked` is `{ field, value }` when triggered by checking a box, or
+ * omitted for an uncheck / bulk action (prune-only, no new auto-checks). */
+function reconcileRelatedFields(justChecked) {
+  if (justChecked) {
+    const { field, value } = justChecked;
+    const rows = state.raw.filter((r) => r[field] === value);
+    RELATED_FIELDS.forEach((other) => {
+      if (other === field) return;
+      const stateKey = FIELD_TO_STATE_KEY[other];
+      uniq(rows.map((r) => r[other])).forEach((v) => state[stateKey].add(v));
+    });
+  }
+
+  // Two prune passes settle most realistic cascades without a full
+  // fixed-point loop (each pass can only ever shrink sets further).
+  for (let pass = 0; pass < 2; pass++) {
+    RELATED_FIELDS.forEach((field) => {
+      const stateKey = FIELD_TO_STATE_KEY[field];
+      const visible = new Set(fieldValues(field));
+      [...state[stateKey]].forEach((v) => { if (!visible.has(v)) state[stateKey].delete(v); });
+    });
+  }
+}
+
 function renderDropdown(field) {
   const stateKey = FIELD_TO_STATE_KEY[field];
   const set = state[stateKey];
@@ -282,18 +321,22 @@ function renderDropdown(field) {
           <span>${labelForValue(field, v)}</span>
         </label>
       `).join("")
-    : `<div class="state-banner" style="padding:16px;">No options available.</div>`;
+    : `<div class="state-banner" style="padding:16px;">No related options.</div>`;
 
   const valueEl = document.querySelector(`[data-value-for="${field}"]`);
-  if (!values.length) valueEl.textContent = "—";
+  if (!values.length) valueEl.textContent = "None";
   else if (set.size === 0) valueEl.textContent = "None";
   else if (set.size === values.length) valueEl.textContent = field === "period" ? "Latest" : "All";
   else if (set.size === 1) valueEl.textContent = labelForValue(field, [...set][0]);
   else valueEl.textContent = `${set.size} selected`;
 }
 
+function renderAllRelatedDropdowns() {
+  RELATED_FIELDS.forEach(renderDropdown);
+}
+
 function populateFilters() {
-  ["principal", "branch", "channel", "category"].forEach(syncCheckField);
+  RELATED_FIELDS.forEach(syncCheckField);
   syncPeriods();
   DROPDOWN_FIELDS.forEach(renderDropdown);
 }
@@ -306,18 +349,6 @@ function selectionSummaryText(field) {
   if (set.size === values.length) return field === "principal" ? "All principals" : `All ${field}s`;
   if (set.size === 1) return labelForValue(field, [...set][0]);
   return `${set.size} ${field}s selected`;
-}
-
-/** Channel, Category, and Branch/Site option pools depend on which
- * Principals are checked — re-sync and redraw them whenever the Principal
- * selection changes. */
-function cascadeFromPrincipal() {
-  syncCheckField("branch");
-  syncCheckField("channel");
-  syncCheckField("category");
-  renderDropdown("branch");
-  renderDropdown("channel");
-  renderDropdown("category");
 }
 
 function wireFilterEvents() {
@@ -334,9 +365,16 @@ function wireFilterEvents() {
       return;
     }
 
-    if (cb.checked) set.add(cb.value); else set.delete(cb.value);
-    renderDropdown(field);
-    if (field === "principal") cascadeFromPrincipal();
+    if (cb.checked) {
+      set.add(cb.value);
+      if (RELATED_FIELDS.includes(field)) reconcileRelatedFields({ field, value: cb.value });
+    } else {
+      set.delete(cb.value);
+      if (RELATED_FIELDS.includes(field)) reconcileRelatedFields();
+    }
+
+    if (RELATED_FIELDS.includes(field)) renderAllRelatedDropdowns();
+    else renderDropdown(field);
     render();
   });
 
@@ -353,8 +391,13 @@ function wireFilterEvents() {
       } else {
         state[stateKey] = field === "period" && values.length ? new Set([values[0]]) : new Set();
       }
-      renderDropdown(field);
-      if (field === "principal") cascadeFromPrincipal();
+
+      if (RELATED_FIELDS.includes(field)) {
+        reconcileRelatedFields();
+        renderAllRelatedDropdowns();
+      } else {
+        renderDropdown(field);
+      }
       render();
       return;
     }
