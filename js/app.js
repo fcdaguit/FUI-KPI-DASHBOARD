@@ -219,9 +219,20 @@ function rawFieldValues(field) {
 /** The values actually shown/checkable for a field right now — cross-filtered
  * against the OTHER three related fields' current selections, so a dropdown
  * never displays an option unrelated to what's checked elsewhere. */
+/** The values shown/checkable for a field — cross-filtered against sibling
+ * fields' current selections, EXCEPT a sibling that's fully empty (e.g. from
+ * "Uncheck All") is treated as unconstrained here so it never collapses
+ * another field's visible option list down to nothing. Actual data
+ * filtering (scoped(), used for the charts/reports) stays strict — an empty
+ * field there really does mean zero matching rows. */
 function fieldValues(field) {
   if (field === "period") return allPeriods();
-  const pool = scoped(state.raw, { [IGNORE_KEY[field]]: true });
+  const opts = { [IGNORE_KEY[field]]: true };
+  RELATED_FIELDS.forEach((other) => {
+    if (other === field) return;
+    if (state[FIELD_TO_STATE_KEY[other]].size === 0) opts[IGNORE_KEY[other]] = true;
+  });
+  const pool = scoped(state.raw, opts);
   return uniq(pool.map((r) => r[field])).sort();
 }
 
@@ -378,7 +389,7 @@ function wireFilterEvents() {
     render();
   });
 
-  // Select All / Clear bulk actions, and open/close toggling
+  // Select All / Uncheck All bulk actions, and open/close toggling
   document.body.addEventListener("click", (e) => {
     const bulkBtn = e.target.closest("[data-bulk]");
     if (bulkBtn) {
@@ -386,16 +397,23 @@ function wireFilterEvents() {
       const field = panel.dataset.panel;
       const stateKey = FIELD_TO_STATE_KEY[field];
       const values = fieldValues(field);
-      if (bulkBtn.dataset.bulk === "all") {
-        state[stateKey] = new Set(values);
-      } else {
-        state[stateKey] = field === "period" && values.length ? new Set([values[0]]) : new Set();
-      }
+      const isSelectAll = bulkBtn.dataset.bulk === "all";
 
-      if (RELATED_FIELDS.includes(field)) {
-        reconcileRelatedFields();
-        renderAllRelatedDropdowns();
+      if (isSelectAll) {
+        state[stateKey] = new Set(values);
+        if (RELATED_FIELDS.includes(field)) {
+          // selecting everything can only ever ADD reachable options for
+          // siblings, never remove any — safe to reconcile
+          reconcileRelatedFields();
+          renderAllRelatedDropdowns();
+        } else {
+          renderDropdown(field);
+        }
       } else {
+        // Uncheck All / Latest Only: a purely local action — unchecks this
+        // field's own boxes without touching sibling selections or
+        // collapsing anyone's visible option list
+        state[stateKey] = field === "period" && values.length ? new Set([values[0]]) : new Set();
         renderDropdown(field);
       }
       render();
