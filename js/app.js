@@ -480,6 +480,46 @@ function periodRows(rows) {
   return rows.filter((r) => state.periods.has(`${r.year}-${MONTHS.indexOf(r.month)}`));
 }
 
+/* ---------------- Theoretical Target (pacing) ---------------- */
+
+function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+/** Days elapsed in a given (year, monthIndex), for pacing purposes:
+ * a fully-past month counts as 100% elapsed, a not-yet-started future
+ * month as 0% elapsed, and the current month as "today's date so far". */
+function daysElapsedInPeriod(year, monthIndex) {
+  const total = daysInMonth(year, monthIndex);
+  const now = new Date();
+  const curY = now.getFullYear();
+  const curM = now.getMonth();
+  if (year < curY || (year === curY && monthIndex < curM)) return total; // past month — fully elapsed
+  if (year > curY || (year === curY && monthIndex > curM)) return 0; // future month — not started
+  return Math.min(now.getDate(), total); // current month — elapsed so far
+}
+
+/** Theoretical Target = Σ over each (year, month) present in `rows` of:
+ *   (days elapsed in that month ÷ total days in that month) × that month's Target
+ * Computed per-month before summing, so a multi-period selection prorates
+ * each month independently rather than using one blended day-count. */
+function theoreticalTarget(rows) {
+  const byPeriod = new Map();
+  rows.forEach((r) => {
+    const mi = MONTHS.indexOf(r.month);
+    const key = `${r.year}-${mi}`;
+    if (!byPeriod.has(key)) byPeriod.set(key, { year: r.year, mi, target: 0 });
+    byPeriod.get(key).target += r.target;
+  });
+  let total = 0;
+  byPeriod.forEach(({ year, mi, target }) => {
+    const days = daysInMonth(year, mi);
+    const elapsed = daysElapsedInPeriod(year, mi);
+    total += days ? (elapsed / days) * target : 0;
+  });
+  return total;
+}
+
 function renderSummary(rows) {
   const grid = $("#summaryGrid");
   if (!rows.length) {
@@ -490,6 +530,8 @@ function renderSummary(rows) {
   const target = current.reduce((s, r) => s + r.target, 0);
   const actual = current.reduce((s, r) => s + r.actual, 0);
   const achievement = target ? (actual / target) * 100 : 0;
+  const theoreticalTgt = theoreticalTarget(current);
+  const theoreticalBalance = actual - theoreticalTgt; // negative = behind pace, positive/zero = on or ahead of pace
 
   // YoY: compare same months across 2025 vs 2026 within full (unfiltered-by-period) rows
   const yoy2025 = rows.filter((r) => r.year === 2025 && MONTHS.indexOf(r.month) < 7);
@@ -542,9 +584,20 @@ function renderSummary(rows) {
       <div class="value" style="font-size:18px;">${best ? best.key : "—"}</div>
       <div class="delta up">${best ? best.pct.toFixed(1) + "% achieved" : ""}</div>
     </div>
+    <div class="summary-card ${actual < theoreticalTgt ? "alert" : ""}">
+      <div class="label">Theoretical Target — ${periodLabel}</div>
+      <div class="value">${fmtCompact(theoreticalTgt)}</div>
+      <div class="delta ${actual >= theoreticalTgt ? "up" : "down"}">${actual >= theoreticalTgt ? "Ahead of" : "Behind"} pace by ${fmtCompact(Math.abs(actual - theoreticalTgt))}</div>
+    </div>
+    <div class="summary-card ${theoreticalBalance < 0 ? "alert" : ""}">
+      <div class="label">Theoretical Balance — ${periodLabel}</div>
+      <div class="value">${theoreticalBalance >= 0 ? "+" : "-"}${fmtCompact(Math.abs(theoreticalBalance))}</div>
+      <div class="delta ${theoreticalBalance >= 0 ? "up" : "down"}">${theoreticalBalance >= 0 ? "At or ahead of pace" : "Behind pace"}</div>
+    </div>
     <div class="summary-narrative">
       <strong>${periodLabel}:</strong> ${selectionSummaryText("principal")} reached
-      <strong>${achievement.toFixed(1)}%</strong> of target (${fmtCompact(actual)} of ${fmtCompact(target)}).
+      <strong>${achievement.toFixed(1)}%</strong> of target (${fmtCompact(actual)} of ${fmtCompact(target)}),
+      ${actual >= theoreticalTgt ? "running ahead of" : "trailing"} the theoretical (day-prorated) target of ${fmtCompact(theoreticalTgt)}.
       ${worst ? `The segment needing the most attention is <strong>${worst.key}</strong> at ${worst.pct.toFixed(1)}% achievement.` : ""}
       Year-over-year sellout is ${yoyGrowth >= 0 ? "up" : "down"} ${Math.abs(yoyGrowth).toFixed(1)}% versus the same months last year.
     </div>
@@ -762,11 +815,12 @@ function computeSiteTopline(rows) {
     const actual = current.reduce((s, r) => s + r.actual, 0);
     const achievement = target ? (actual / target) * 100 : 0;
     const balance = target - actual; // positive = shortfall, negative = surplus
+    const theoreticalTgt = theoreticalTarget(current);
     const historical = branchRows
       .filter((r) => histPeriods.has(`${r.year}-${MONTHS.indexOf(r.month)}`))
       .reduce((s, r) => s + r.actual, 0);
     const growth = historical ? ((actual / historical) - 1) * 100 : null;
-    return { branch, target, actual, achievement, balance, historical, growth };
+    return { branch, target, actual, achievement, balance, theoreticalTgt, historical, growth };
   });
 }
 
@@ -813,12 +867,12 @@ function renderTopline(rows) {
     toplineCharts[s.branch] = new Chart(canvas, {
       type: "bar",
       data: {
-        labels: ["Historical", "Target", "Actual"],
+        labels: ["Historical", "Target", "Theoretical", "Actual"],
         datasets: [{
-          data: [s.historical, s.target, s.actual],
-          backgroundColor: [BRAND.gray, BRAND.blue, s.actual >= s.target ? "#1E7B3E" : BRAND.red],
+          data: [s.historical, s.target, s.theoreticalTgt, s.actual],
+          backgroundColor: [BRAND.gray, BRAND.blue, "#F0A202", s.actual >= s.target ? "#1E7B3E" : BRAND.red],
           borderRadius: 4,
-          maxBarThickness: 42,
+          maxBarThickness: 34,
         }],
       },
       options: {
