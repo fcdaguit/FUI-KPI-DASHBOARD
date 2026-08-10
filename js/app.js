@@ -839,11 +839,12 @@ function computeSiteTopline(rows) {
     const achievement = target ? (actual / target) * 100 : 0;
     const balance = target - actual; // positive = shortfall, negative = surplus
     const theoreticalTgt = theoreticalTarget(current);
+    const theoreticalBalance = actual - theoreticalTgt; // negative = behind pace, positive/zero = on or ahead of pace
     const historical = branchRows
       .filter((r) => histPeriods.has(`${r.year}-${MONTHS.indexOf(r.month)}`))
       .reduce((s, r) => s + r.actual, 0);
     const growth = historical ? ((actual / historical) - 1) * 100 : null;
-    return { branch, target, actual, achievement, balance, theoreticalTgt, historical, growth };
+    return { branch, target, actual, achievement, balance, theoreticalTgt, theoreticalBalance, historical, growth };
   });
 }
 
@@ -873,6 +874,10 @@ function renderTopline(rows) {
             <div>
               <span class="m-label">Balance</span>
               <span class="m-value ${s.balance > 0 ? "down" : "up"}">${fmtCompact(Math.abs(s.balance))} ${s.balance > 0 ? "short" : "over"}</span>
+            </div>
+            <div>
+              <span class="m-label">Theoretical Balance</span>
+              <span class="m-value ${s.theoreticalBalance < 0 ? "down" : "up"}">${s.theoreticalBalance >= 0 ? "+" : "-"}${fmtCompact(Math.abs(s.theoreticalBalance))}</span>
             </div>
             <div>
               <span class="m-label">Growth YoY</span>
