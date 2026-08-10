@@ -532,6 +532,7 @@ function renderSummary(rows) {
   const achievement = target ? (actual / target) * 100 : 0;
   const theoreticalTgt = theoreticalTarget(current);
   const theoreticalBalance = actual - theoreticalTgt; // negative = behind pace, positive/zero = on or ahead of pace
+  const balance = target - actual; // positive = shortfall, negative = surplus
 
   // YoY: compare same months across 2025 vs 2026 within full (unfiltered-by-period) rows
   const yoy2025 = rows.filter((r) => r.year === 2025 && MONTHS.indexOf(r.month) < 7);
@@ -588,6 +589,11 @@ function renderSummary(rows) {
       <div class="label">Theoretical Target — ${periodLabel}</div>
       <div class="value">${fmtCompact(theoreticalTgt)}</div>
       <div class="delta ${actual >= theoreticalTgt ? "up" : "down"}">${actual >= theoreticalTgt ? "Ahead of" : "Behind"} pace by ${fmtCompact(Math.abs(actual - theoreticalTgt))}</div>
+    </div>
+    <div class="summary-card ${balance > 0 ? "alert" : ""}">
+      <div class="label">Balance — ${periodLabel}</div>
+      <div class="value">${fmtCompact(Math.abs(balance))}</div>
+      <div class="delta ${balance <= 0 ? "up" : "down"}">${balance > 0 ? "Short of target" : "Over target"}</div>
     </div>
     <div class="summary-card ${theoreticalBalance < 0 ? "alert" : ""}">
       <div class="label">Theoretical Balance — ${periodLabel}</div>
