@@ -201,33 +201,39 @@ function scoped(rows, { ignorePrincipal = false, ignoreBranch = false, ignoreCha
 
 const FIELD_TO_STATE_KEY = { principal: "principals", branch: "branches", channel: "channels", category: "categories", period: "periods" };
 const DROPDOWN_FIELDS = ["principal", "branch", "period", "channel", "category"];
-// Principal & Branch relate to EACH OTHER via checkbox state only — their
-// dropdown lists always show every value; checking/unchecking one just
-// checks/unchecks the related values in the other.
-const PRIMARY_FIELDS = ["principal", "branch"];
-// Channel & Category are DERIVED from the current Principal + Branch
-// selection — their dropdown lists actually shrink to only what's reachable.
-const SECONDARY_FIELDS = ["channel", "category"];
+// Principal is the sole top-level field — its dropdown always shows every
+// value; relationships elsewhere are reflected only via checkbox state.
+const PRIMARY_FIELDS = ["principal"];
+// Branch/Site, Channel, and Category are all DERIVED from Principal (and,
+// for Channel/Category, from Branch too) — their dropdown lists actually
+// shrink/hide to only what's reachable, not just uncheck.
+const SECONDARY_FIELDS = ["branch", "channel", "category"];
 
 // Tracks every value ever seen per field, so a data refresh can tell a
 // genuinely NEW value (default it to included) from one the user
-// deliberately unchecked (leave it excluded).
+// deliberately unchecked (leave it excluded). Not used for "branch", which
+// hard-resets to "all related" on every Principal change instead (see
+// cascadeBranchFromPrincipal).
 const knownValues = { principal: new Set(), branch: new Set(), channel: new Set(), category: new Set() };
 
-/** The row pool a field's option list is computed from: Principal/Branch
- * always draw from the full dataset; Channel/Category draw only from rows
- * matching the current Principal + Branch selection. */
+/** The row pool a field's option list is computed from:
+ * - Principal always draws from the full dataset.
+ * - Branch draws from rows matching the current Principal selection.
+ * - Channel/Category draw from rows matching the current Principal AND
+ *   Branch selection. */
 function poolForField(field) {
-  if (SECONDARY_FIELDS.includes(field)) {
+  if (field === "branch") {
+    return state.raw.filter((r) => state.principals.has(r.principal));
+  }
+  if (field === "channel" || field === "category") {
     return state.raw.filter((r) => state.principals.has(r.principal) && state.branches.has(r.branch));
   }
   return state.raw;
 }
 
-/** What a dropdown actually displays. Principal/Branch: always the full
- * list — relationships are reflected only via checkbox state, never by
- * hiding options. Channel/Category: shrinks to match the Principal+Branch
- * selection. */
+/** What a dropdown actually displays. Principal: always the full list.
+ * Branch/Channel/Category: shrinks/hides to match the current upstream
+ * selection (Branch ← Principal; Channel/Category ← Principal + Branch). */
 function displayValues(field) {
   if (field === "period") return allPeriods();
   return uniq(poolForField(field).map((r) => r[field])).sort();
@@ -257,7 +263,8 @@ function allPeriods() {
  * longer reachable are pruned; values already known and still reachable
  * keep whatever checked/unchecked state the user left them in. Used at
  * init/Refresh time, and to re-sync Channel/Category whenever Principal or
- * Branch's selection changes. */
+ * Branch's selection changes. (Branch itself uses a hard reset instead —
+ * see cascadeBranchFromPrincipal.) */
 function syncCheckField(field) {
   const values = displayValues(field);
   const stateKey = FIELD_TO_STATE_KEY[field];
@@ -288,33 +295,22 @@ function syncPeriods() {
   state.periods = new Set([periods.includes(currentValue) ? currentValue : periods[0]]);
 }
 
-/** Principal and Branch stay mutually consistent via CHECKBOX STATE ONLY —
- * their lists are never hidden (see displayValues). Checking a value
- * auto-checks whatever co-occurs with it (same rows) in the other field;
- * any value in either field no longer reachable given the other's current
- * selection gets unchecked. `justChecked` is `{ field, value }` when
- * triggered by checking a box, or omitted for an uncheck (prune-only). */
-function reconcilePrimaryFields(justChecked) {
-  if (justChecked) {
-    const { field, value } = justChecked;
-    const other = field === "principal" ? "branch" : "principal";
-    const rows = state.raw.filter((r) => r[field] === value);
-    uniq(rows.map((r) => r[other])).forEach((v) => state[FIELD_TO_STATE_KEY[other]].add(v));
-  }
-  PRIMARY_FIELDS.forEach((field) => {
-    const other = field === "principal" ? "branch" : "principal";
-    const otherSet = state[FIELD_TO_STATE_KEY[other]];
-    if (otherSet.size === 0) return; // nothing checked on the other side — don't constrain
-    const reachable = new Set(state.raw.filter((r) => otherSet.has(r[other])).map((r) => r[field]));
-    const set = state[FIELD_TO_STATE_KEY[field]];
-    [...set].forEach((v) => { if (!reachable.has(v)) set.delete(v); });
-  });
+/** Branch/Site is hard-reset to "every branch related to the currently
+ * checked Principal(s)", all checked — matching "when a specific Principal
+ * is selected, only the related Branch/Site should be checked and
+ * displayed, while all others are hidden" / "Select All on Principal checks
+ * and shows every Branch". Call whenever Principal's checked state changes. */
+function cascadeBranchFromPrincipal() {
+  const branches = uniq(state.raw.filter((r) => state.principals.has(r.principal)).map((r) => r.branch)).sort();
+  state.branches = new Set(branches);
+  knownValues.branch = new Set(branches);
 }
 
 /** Re-sync Channel/Category against the current Principal+Branch pool.
  * Call this any time Principal or Branch's checked state changes. */
-function cascadeToSecondaryFields() {
-  SECONDARY_FIELDS.forEach(syncCheckField);
+function cascadeChannelCategory() {
+  syncCheckField("channel");
+  syncCheckField("category");
 }
 
 function renderDropdown(field) {
@@ -340,12 +336,20 @@ function renderDropdown(field) {
   else valueEl.textContent = `${set.size} selected`;
 }
 
-function renderPrimaryDropdowns() { PRIMARY_FIELDS.forEach(renderDropdown); }
 function renderSecondaryDropdowns() { SECONDARY_FIELDS.forEach(renderDropdown); }
 
+/** Call whenever Principal's checked state changes (individual toggle or
+ * bulk action): resets Branch to all-related-checked, then re-syncs
+ * Channel/Category downstream of that. */
+function cascadeFromPrincipal() {
+  cascadeBranchFromPrincipal();
+  cascadeChannelCategory();
+}
+
 function populateFilters() {
-  PRIMARY_FIELDS.forEach(syncCheckField);
-  SECONDARY_FIELDS.forEach(syncCheckField); // pool now reflects the freshly-synced Principal/Branch baseline
+  syncCheckField("principal");
+  cascadeBranchFromPrincipal();
+  cascadeChannelCategory();
   syncPeriods();
   DROPDOWN_FIELDS.forEach(renderDropdown);
 }
@@ -358,6 +362,24 @@ function selectionSummaryText(field) {
   if (set.size === values.length) return field === "principal" ? "All principals" : `All ${field}s`;
   if (set.size === 1) return labelForValue(field, [...set][0]);
   return `${set.size} ${field}s selected`;
+}
+
+/** Call after any field's included Set has been mutated (checkbox toggle or
+ * bulk action) to trigger the right downstream cascade and redraw whatever
+ * dropdowns need to reflect it. */
+function handleFieldChanged(field) {
+  if (field === "principal") {
+    cascadeFromPrincipal(); // hard-resets Branch to all-related, then re-syncs Channel/Category
+    renderDropdown("principal");
+    renderSecondaryDropdowns(); // branch, channel, category
+  } else if (field === "branch") {
+    cascadeChannelCategory(); // Channel/Category also depend on Branch
+    renderDropdown("branch");
+    renderDropdown("channel");
+    renderDropdown("category");
+  } else {
+    renderDropdown(field); // channel/category/period: purely local toggle
+  }
 }
 
 function wireFilterEvents() {
@@ -375,15 +397,7 @@ function wireFilterEvents() {
     }
 
     if (cb.checked) set.add(cb.value); else set.delete(cb.value);
-
-    if (PRIMARY_FIELDS.includes(field)) {
-      reconcilePrimaryFields(cb.checked ? { field, value: cb.value } : undefined);
-      renderPrimaryDropdowns();
-      cascadeToSecondaryFields();
-      renderSecondaryDropdowns();
-    } else {
-      renderDropdown(field); // Channel/Category/Period: purely local toggle
-    }
+    handleFieldChanged(field);
     render();
   });
 
@@ -400,15 +414,7 @@ function wireFilterEvents() {
       state[stateKey] = isSelectAll
         ? new Set(values)
         : (field === "period" && values.length ? new Set([values[0]]) : new Set());
-      renderDropdown(field);
-
-      if (PRIMARY_FIELDS.includes(field)) {
-        // local only w.r.t. Principal<->Branch (no reconcile, avoids an
-        // immediate partial "undo" of Select All) — but Channel/Category
-        // still need to re-sync downstream from the new Principal/Branch state
-        cascadeToSecondaryFields();
-        renderSecondaryDropdowns();
-      }
+      handleFieldChanged(field);
       render();
       return;
     }
