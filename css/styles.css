@@ -589,8 +589,9 @@ main {
 .chart-wrap.small { height: 160px; }
 
 .topline-metrics {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 10px;
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--gray-100);
