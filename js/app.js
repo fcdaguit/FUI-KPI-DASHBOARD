@@ -534,12 +534,20 @@ function renderSummary(rows) {
   const theoreticalBalance = actual - theoreticalTgt; // negative = behind pace, positive/zero = on or ahead of pace
   const balance = target - actual; // positive = shortfall, negative = surplus
 
-  // YoY: compare same months across 2025 vs 2026 within full (unfiltered-by-period) rows
-  const yoy2025 = rows.filter((r) => r.year === 2025 && MONTHS.indexOf(r.month) < 7);
-  const yoy2026 = rows.filter((r) => r.year === 2026);
+  // YoY: compare the same span of months between the latest year present
+  // and the year before it, using whatever the latest month actually in
+  // the data is (not a hardcoded cutoff) — full (unfiltered-by-period) rows
+  const yearsPresent = uniq(rows.map((r) => r.year)).sort((a, b) => b - a);
+  const yoyYear = yearsPresent[0];
+  const priorYear = yoyYear - 1;
+  const yoyMonthIndices = uniq(rows.filter((r) => r.year === yoyYear).map((r) => MONTHS.indexOf(r.month)));
+  const yoyMaxMonth = yoyMonthIndices.length ? Math.max(...yoyMonthIndices) : 11;
+  const yoy2025 = rows.filter((r) => r.year === priorYear && MONTHS.indexOf(r.month) <= yoyMaxMonth);
+  const yoy2026 = rows.filter((r) => r.year === yoyYear);
   const sum2025 = yoy2025.reduce((s, r) => s + r.actual, 0);
   const sum2026 = yoy2026.reduce((s, r) => s + r.actual, 0);
   const yoyGrowth = sum2025 ? ((sum2026 - sum2025) / sum2025) * 100 : 0;
+  const yoyRangeLabel = `${MONTHS[0]}–${MONTHS[yoyMaxMonth]}`;
 
   const bySite = {};
   current.forEach((r) => {
@@ -576,7 +584,7 @@ function renderSummary(rows) {
       <div class="delta">Target ${fmtCompact(target)}</div>
     </div>
     <div class="summary-card ${yoyGrowth < 0 ? "alert" : ""}">
-      <div class="label">YoY Growth (Jan–Jul, 2025 vs 2026)</div>
+      <div class="label">YoY Growth (${yoyRangeLabel}, ${priorYear} vs ${yoyYear})</div>
       <div class="value">${yoyGrowth >= 0 ? "+" : ""}${yoyGrowth.toFixed(1)}%</div>
       <div class="delta ${yoyGrowth >= 0 ? "up" : "down"}">${fmtCompact(sum2025)} → ${fmtCompact(sum2026)}</div>
     </div>
@@ -640,19 +648,28 @@ function renderTrendChart(rows) {
 }
 
 function renderYoyChart(rows) {
-  const months2025 = MONTHS.slice(0, 12);
-  const dataFor = (year) => months2025.map((m) => rows.filter((r) => r.year === year && r.month === m).reduce((s, r) => s + r.actual, 0));
-  const d2025 = dataFor(2025);
-  const d2026 = MONTHS.slice(0, 7).map((m) => rows.filter((r) => r.year === 2026 && r.month === m).reduce((s, r) => s + r.actual, 0));
+  const years = uniq(rows.map((r) => r.year)).sort((a, b) => b - a);
+  const currentYear = years[0];
+  const priorYear = currentYear !== undefined ? currentYear - 1 : undefined;
+
+  // show exactly as many months as actually exist for the current year
+  // (e.g. through August if August data is present) — never a hardcoded cutoff
+  const monthIndices = uniq(rows.filter((r) => r.year === currentYear).map((r) => MONTHS.indexOf(r.month)));
+  const maxMonthIdx = monthIndices.length ? Math.max(...monthIndices) : 11;
+  const monthsToShow = MONTHS.slice(0, maxMonthIdx + 1);
+
+  const dataFor = (year) => monthsToShow.map((m) => rows.filter((r) => r.year === year && r.month === m).reduce((s, r) => s + r.actual, 0));
+  const dPrior = dataFor(priorYear);
+  const dCurrent = dataFor(currentYear);
 
   if (yoyChart) yoyChart.destroy();
   yoyChart = new Chart($("#yoyChart"), {
     type: "bar",
     data: {
-      labels: months2025,
+      labels: monthsToShow,
       datasets: [
-        { label: "2025", data: d2025, backgroundColor: BRAND.red + "cc", borderRadius: 4, maxBarThickness: 18 },
-        { label: "2026", data: [...d2026, ...Array(5).fill(null)], backgroundColor: BRAND.blue, borderRadius: 4, maxBarThickness: 18 },
+        { label: String(priorYear), data: dPrior, backgroundColor: BRAND.red + "cc", borderRadius: 4, maxBarThickness: 18 },
+        { label: String(currentYear), data: dCurrent, backgroundColor: BRAND.blue, borderRadius: 4, maxBarThickness: 18 },
       ],
     },
     options: chartBaseOptions((ctx) => `${ctx.dataset.label}: ${fmtPeso(ctx.parsed.y)}`),
