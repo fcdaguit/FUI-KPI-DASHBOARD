@@ -3,13 +3,40 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FAST Regional Ops KPI Dashboard</title>
+<title>FAST Unimerchant Regional Ops KPI Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/styles.css" />
 <link rel="icon" type="image/png" href="assets/fast-logo.png" />
 </head>
 <body>
+
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="assets/fast-logo.png" alt="FAST logo" />
+    </div>
+    <h1 class="login-title">Unimerchant Regional Ops KPI Dashboard</h1>
+    <p class="login-subtitle">Sign in to view your Principal(s)' sellout performance.</p>
+    <form id="loginForm" autocomplete="on">
+      <label class="login-label" for="loginUsername">Username</label>
+      <input class="login-input" type="text" id="loginUsername" name="username" autocomplete="username" required />
+      <label class="login-label" for="loginPassword">Password</label>
+      <div class="login-password-wrap">
+        <input class="login-input" type="password" id="loginPassword" name="password" autocomplete="current-password" required />
+        <button type="button" class="password-toggle-btn" id="passwordToggleBtn" aria-label="Show password" aria-pressed="false">
+          <svg class="eye-icon eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-icon eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a20.6 20.6 0 0 1 5.06-6.06M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a20.5 20.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+      </div>
+      <div class="login-error" id="loginError"></div>
+      <button class="login-submit" type="submit" id="loginSubmitBtn">Sign In</button>
+    </form>
+    <p class="login-note">Access is scoped per-user by an admin — you'll only see the Principal(s) assigned to your account.</p>
+  </div>
+</div>
+
+<div class="app-shell hidden" id="appShell">
 
 <header class="site-header">
   <div class="header-inner">
@@ -18,11 +45,15 @@
         <img src="assets/fast-logo.png" alt="FAST logo" />
       </div>
       <div class="brand-text">
-        <span class="name">Regional Ops</span>
+        <span class="name">Unimerchant Regional Ops</span>
         <span class="tagline">Multi-Principal Sellout Performance</span>
       </div>
     </div>
     <div class="header-meta">
+      <div class="user-badge" id="userBadge">
+        <span id="userBadgeName">—</span>
+        <button type="button" class="logout-btn" id="logoutBtn">Log out</button>
+      </div>
       <div class="last-updated">
         <div>Data as of <span id="lastUpdated">—</span></div>
         <div><span class="source-badge" id="dataSourceBadge">—</span> · <span id="dataScope">—</span></div>
@@ -36,6 +67,11 @@
 </header>
 
 <div class="filter-bar" id="filterBar">
+  <div class="metric-toggle" id="metricToggle" role="group" aria-label="Metric Type">
+    <button type="button" class="metric-btn active" data-metric="Amount">Amount</button>
+    <button type="button" class="metric-btn" data-metric="Volume">Volume</button>
+  </div>
+
   <div class="dropdown-filter" data-filter="principal">
     <button type="button" class="dropdown-btn">
       <span class="dropdown-label">Principal / Supplier</span>
@@ -190,6 +226,8 @@
     <span class="meta">Sources refresh from principal Google Sheets exports · GitHub Pages static build</span>
   </div>
 </footer>
+
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="js/app.js"></script>
