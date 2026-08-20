@@ -9,6 +9,15 @@ Usage:
 Each input CSV must use the template's required columns:
     Branch/Site,Principal/Supplier,Channel,Category,Month,Year,Target Sales,Actual Sales
 
+Two more columns are optional — include them only for a principal that
+reports Volume alongside Amount (e.g. Shell Lubricants in liters):
+    Metric Type   "Amount" or "Volume" — blank/omitted defaults to "Amount"
+    Unit          e.g. "Liters", "Kilograms" — only meaningful for Volume rows
+
+A principal reporting both just needs two rows per Branch/Channel/Category/
+Month: one with Metric Type=Amount (peso Target/Actual), one with Metric
+Type=Volume (unit-count Target/Actual) and its Unit filled in.
+
 Any additional columns (e.g. Salesman, Area, Supervisor) are passed through
 as-is — the dashboard auto-detects and charts them. Blank or duplicate
 header names are dropped with a warning rather than failing the build.
@@ -26,6 +35,7 @@ REQUIRED_COLUMNS = [
     "Branch/Site", "Principal/Supplier", "Channel", "Category",
     "Month", "Year", "Target Sales", "Actual Sales",
 ]
+OPTIONAL_KNOWN_COLUMNS = ["Metric Type", "Unit"]
 
 def clean_headers(fieldnames, path):
     """Return list of (index, name) for the first occurrence of each
@@ -57,7 +67,7 @@ def load_csv(path):
         missing = [c for c in REQUIRED_COLUMNS if c not in names]
         if missing:
             raise ValueError(f"{path}: missing required column(s) {missing}")
-        extra_columns = [c for c in names if c not in REQUIRED_COLUMNS]
+        extra_columns = [c for c in names if c not in REQUIRED_COLUMNS and c not in OPTIONAL_KNOWN_COLUMNS]
 
         for raw_row in reader:
             if not any(cell.strip() for cell in raw_row):
@@ -87,6 +97,8 @@ def load_csv(path):
                 "target": target,
                 "actual": actual,
                 "achievement": round((actual / target) * 100, 1) if target else 0,
+                "metricType": r.get("Metric Type") or "Amount",
+                "unit": r.get("Unit") or "",
             }
             # pass through any extra columns (Salesman, Area, Supervisor, ...) as-is
             for col in extra_columns:
