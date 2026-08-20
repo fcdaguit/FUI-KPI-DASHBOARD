@@ -1,0 +1,7 @@
+[
+  { "username": "admin", "password": "admin123", "principals": [] },
+  { "username": "shell_user", "password": "shell123", "principals": ["Shell Lubricants"] },
+  { "username": "monde_user", "password": "monde123", "principals": ["Monde Nissin"] },
+  { "username": "cdo_user", "password": "cdo123", "principals": ["CDO Food"] },
+  { "username": "cebu_lead", "password": "cebu123", "principals": ["Shell Lubricants", "Monde Nissin", "CDO Food"] }
+]
